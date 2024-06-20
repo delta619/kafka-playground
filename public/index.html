@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kafka Consumer Control</title>
+    <style>
+        .consumer {
+            border: 1px solid #ccc;
+            margin: 10px;
+            padding: 10px;
+            width: 45%;
+            float: left;
+        }
+        .consumer h2 {
+            margin-top: 0;
+        }
+        .group {
+            margin-bottom: 10px;
+        }
+        .connected {
+            display: inline-block;
+            margin-left: 10px;
+            color: green;
+        }
+        .tick {
+            color: green;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Kafka Consumer Control</h1>
+    <form id="consumer-form">
+        <label for="topic">Topic:</label>
+        <input type="text" id="topic" name="topic" required><br><br>
+        <div id="groups">
+            <div class="group" id="group1">
+                <label>Group 1 Consumers (comma separated):</label>
+                <input type="text" name="group1" required>
+            </div>
+        </div>
+        <button type="button" onclick="addGroup()">Add Group</button><br><br>
+        <button type="button" onclick="startConsumers()">Start Consumers</button><span id="start-consumers-tick" class="tick" style="display:none;">✅</span>
+    </form>
+    <br><br>
+    <form id="producer-form">
+        <label for="numMessages">Number of Messages to Send:</label>
+        <input type="number" id="numMessages" name="numMessages" required><br><br>
+        <button type="button" onclick="produceMessages()">Send Messages</button>
+    </form>
+    <div id="status"></div>
+    <div id="consumers"></div>
+
+    <script>
+        let groupCount = 1;
+        const socket = new WebSocket(`ws://${window.location.host}`);
+
+        socket.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            const { action, consumerName, partition, broker, message } = data;
+
+            if (action === 'consumerConnected') {
+                const consumerDiv = document.getElementById(consumerName);
+                if (consumerDiv) {
+                    const statusSpan = document.createElement('span');
+                    statusSpan.className = 'connected';
+                    statusSpan.innerHTML = '✅';
+                    consumerDiv.querySelector('h2').appendChild(statusSpan);
+                }
+                document.getElementById('start-consumers-tick').style.display = 'inline';
+                return;
+            }
+
+            if (action === 'produceMessages') {
+                document.getElementById('consumers').innerHTML = ''; // Clear previous messages
+                return;
+            }
+
+            let consumerDiv = document.getElementById(consumerName);
+            if (!consumerDiv) {
+                consumerDiv = document.createElement('div');
+                consumerDiv.id = consumerName;
+                consumerDiv.className = 'consumer';
+                consumerDiv.innerHTML = `<h2>Consumer ${consumerName}</h2><div id="messages-${consumerName}"></div>`;
+                document.getElementById('consumers').appendChild(consumerDiv);
+            }
+
+            const messagesDiv = document.getElementById(`messages-${consumerName}`);
+            const msgElement = document.createElement('p');
+            msgElement.textContent = `Node name - ${consumerName} - Partition: ${partition} - Broker: ${broker} - Message: ${message}`;
+            messagesDiv.appendChild(msgElement);
+        };
+
+        function addGroup() {
+            groupCount++;
+            const newGroup = document.createElement('div');
+            newGroup.className = 'group';
+            newGroup.id = `group${groupCount}`;
+            newGroup.innerHTML = `
+                <label>Group ${groupCount} Consumers (comma separated):</label>
+                <input type="text" name="group${groupCount}" required>
+            `;
+            document.getElementById('groups').appendChild(newGroup);
+        }
+
+        function startConsumers() {
+            const topic = document.getElementById('topic').value;
+            const groups = [];
+            for (let i = 1; i <= groupCount; i++) {
+                const groupId = `group${i}`;
+                const consumers = document.querySelector(`[name="${groupId}"]`).value.split(',').map(c => c.trim());
+                groups.push({ groupId, consumers });
+            }
+
+            const data = { action: 'startConsumers', topic, groups };
+            socket.send(JSON.stringify(data));
+        }
+
+        function produceMessages() {
+            const topic = document.getElementById('topic').value;
+            const numMessages = document.getElementById('numMessages').value;
+
+            const data = { action: 'produceMessages', topic, numMessages: parseInt(numMessages, 10) };
+            socket.send(JSON.stringify(data));
+
+            // Clear previous messages
+            document.getElementById('consumers').innerHTML = '';
+        }
+    </script>
+</body>
+</html>
+
